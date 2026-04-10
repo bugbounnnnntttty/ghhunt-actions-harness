@@ -1,0 +1,60 @@
+name: cache-audit
+on:
+  push:
+    branches: [main, 'cache/**', 'cache-attacker/**']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  write_cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create payload
+        shell: bash
+        run: |
+          mkdir -p payload
+          echo "branch=${GITHUB_REF_NAME}" > payload/branch.txt
+          echo "sha=${GITHUB_SHA}" > payload/sha.txt
+          echo "$(date -u)" > payload/ts.txt
+          cat payload/branch.txt
+      - name: Save to actions cache
+        uses: actions/cache/save@v4
+        with:
+          path: payload
+          key: ghhunt-cache-key-${{ github.ref_name }}
+
+  read_cache:
+    needs: write_cache
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore any cache key that matches prefix
+        id: restore
+        uses: actions/cache/restore@v4
+        with:
+          path: payload
+          key: ghhunt-cache-key-${{ github.ref_name }}
+          restore-keys: |
+            ghhunt-cache-key-
+      - name: Dump restored
+        shell: bash
+        run: |
+          echo "restored: ${{ steps.restore.outputs.cache-hit }}"
+          echo "matched-key: ${{ steps.restore.outputs.cache-matched-key }}"
+          if [ -d payload ]; then
+            ls -la payload/
+            cat payload/*.txt 2>/dev/null || true
+          fi
+
+  enumerate_via_api:
+    needs: read_cache
+    runs-on: ubuntu-latest
+    steps:
+      - name: List caches via API
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -sS -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${{ github.repository }}/actions/caches?per_page=30" > /tmp/caches.json
+          python3 -c "import json; d=json.load(open('/tmp/caches.json')); [print(c.get('ref'), c.get('key'), c.get('size_in_bytes')) for c in d.get('actions_caches', [])]"
