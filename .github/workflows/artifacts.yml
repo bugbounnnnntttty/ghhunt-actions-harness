@@ -12,23 +12,25 @@ jobs:
   upload_traversal:
     runs-on: ubuntu-latest
     steps:
-      - name: Create files with weird paths
+      - name: Create weird files
+        shell: bash
         run: |
           mkdir -p work/normal work/trickydir
-          cd work
-          echo "normal-content" > normal/ok.txt
-          echo "TRAVERSAL" > trickydir/..evil.txt
-          # Create a file with literal '../' in the name using printf tricks
-          # Cannot create '../evil' via shell cleanly, but upload-artifact@v4 has its own rel-path handling
-          ls -la normal trickydir
-          echo "--"
-          pwd
-      - name: Upload normal
+          echo "normal-content" > work/normal/ok.txt
+          echo "dot-dot-prefix" > work/trickydir/..evil.txt
+          echo "newline-in-name" > 'work/trickydir/weird  name.txt'
+          mkdir -p work/deep/a/b/c
+          echo "deep" > work/deep/a/b/c/leaf.txt
+          ln -s /etc work/linked_etc || true
+          ls -la work/ work/normal work/trickydir work/deep/a/b/c
+
+      - name: Upload normal artifact
         uses: actions/upload-artifact@v4
         with:
           name: normal-artifact
           path: work/normal/*
           if-no-files-found: error
+
       - name: Upload with ../ in path expression
         uses: actions/upload-artifact@v4
         continue-on-error: true
@@ -38,47 +40,46 @@ jobs:
             work/trickydir/..evil.txt
             work/normal/../normal/ok.txt
           if-no-files-found: warn
-      - name: Upload with absolute path
+
+      - name: Upload an absolute path
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
           name: abs-artifact
           path: /etc/hostname
           if-no-files-found: error
-      - name: Upload with symlink
+
+      - name: Upload symlink target (should fail by default)
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
           name: symlink-artifact
-          include-hidden-files: true
-          path: work/linked
-      - name: Make a symlink to /etc
-        run: |
-          ln -s /etc work/linked || true
-          ls -la work/
+          path: work/linked_etc/hostname
+          if-no-files-found: error
 
   download_introspect:
     needs: upload_traversal
     runs-on: ubuntu-latest
     steps:
-      - name: Download into isolated dir
+      - name: Download all artifacts into dl/
         uses: actions/download-artifact@v4
         with:
           path: dl
-      - name: Inspect
+
+      - name: Inspect layout
+        shell: bash
         run: |
-          find dl -maxdepth 5 -type f | head -30
-          echo "-- tree --"
-          find dl -maxdepth 5 | head -40
-          echo "-- sizes --"
-          du -a dl 2>/dev/null | head -20
-      - name: Also test raw API download with traversal fname
+          echo "=== tree ==="
+          find dl -maxdepth 6 | head -40
+          echo "=== files ==="
+          find dl -maxdepth 6 -type f -exec ls -la {} \; | head -30
+          echo "=== sizes ==="
+          du -a dl 2>/dev/null | head -30
+
+      - name: API artifact list
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${{ github.repository }}/actions/artifacts" | python3 -c '
-import sys,json
-d = json.load(sys.stdin)
-for a in d.get("artifacts", []):
-    print(a.get("name"), a.get("size_in_bytes"), a.get("archive_download_url"))
-' | head -20
+          curl -sS -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?per_page=30" > /tmp/arts.json
+          python3 -c "import json; d=json.load(open('/tmp/arts.json')); [print(a['name'], a['size_in_bytes'], a['archive_download_url']) for a in d.get('artifacts', [])]"
