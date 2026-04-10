@@ -1,0 +1,60 @@
+name: artifact-name-traversal
+on:
+  push:
+    branches: [main, 'anametrav/**']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create file
+        run: |
+          mkdir -p w
+          echo "hello" > w/hi.txt
+      - name: Try upload with traversal name (via env)
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: "../evilname"
+          path: w/hi.txt
+      - name: Try upload with slash name
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: "foo/bar"
+          path: w/hi.txt
+      - name: Try upload with unusual unicode name
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: "ZZnormal"
+          path: w/hi.txt
+      - name: Upload with empty-ish
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: "."
+          path: w/hi.txt
+
+  dl:
+    needs: upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: List artifacts via API
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -sS -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" | python3 -m json.tool | head -50
+      - name: Download all into dl/
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: dl
+      - name: Show tree
+        run: |
+          find dl -maxdepth 6 | head -30
