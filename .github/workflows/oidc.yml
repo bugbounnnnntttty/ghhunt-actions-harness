@@ -12,45 +12,50 @@ jobs:
   oidc_claims:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch OIDC token with default audience
-        id: default_aud
+      - name: Fetch default audience token and decode
+        shell: bash
         run: |
+          set -e
           REQ_TOKEN="${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
           REQ_URL="${ACTIONS_ID_TOKEN_REQUEST_URL}"
           RESP=$(curl -sS -H "Authorization: Bearer $REQ_TOKEN" "$REQ_URL")
-          TOK=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("value",""))')
-          if [ -z "$TOK" ]; then echo "NO_TOKEN" >&2; exit 1; fi
-          HDR=$(echo "$TOK" | cut -d. -f1 | tr '_-' '/+' | base64 -d 2>/dev/null || true)
-          PAY=$(echo "$TOK" | cut -d. -f2)
-          # pad for base64
-          case $((${#PAY} % 4)) in 2) PAY="$PAY==" ;; 3) PAY="$PAY=" ;; esac
-          PAYJ=$(echo "$PAY" | tr '_-' '/+' | base64 -d 2>/dev/null)
-          echo "== DEFAULT AUDIENCE =="
-          echo "$HDR"
-          echo "$PAYJ" | python3 -m json.tool
-      - name: Fetch with custom audience
+          TOK=$(printf "%s" "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('value',''))")
+          if [ -z "$TOK" ]; then echo NOTOKEN; echo RESP=$RESP; exit 1; fi
+          PAY=$(printf "%s" "$TOK" | cut -d. -f2)
+          PAD=$((4 - ${#PAY} % 4))
+          if [ $PAD -lt 4 ]; then PAY="${PAY}$(printf '=%.0s' $(seq 1 $PAD))"; fi
+          echo "--- default audience claims ---"
+          printf "%s" "$PAY" | tr -- '-_' '+/' | base64 -d 2>/dev/null | python3 -m json.tool
+
+      - name: Fetch with custom audiences
+        shell: bash
         run: |
+          set -e
           REQ_TOKEN="${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
           REQ_URL="${ACTIONS_ID_TOKEN_REQUEST_URL}"
-          for AUD in "myservice" "aws-sts.amazonaws.com" "sts.amazonaws.com" "https://evil.invalid/abc" "api.github.com" "actions.githubusercontent.com" '' '""'; do
-            echo "---- aud='$AUD' ----"
+          for AUD in myservice aws-sts.amazonaws.com sts.amazonaws.com attacker.example api.github.com actions.githubusercontent.com 'https://evil.invalid/abc' ; do
+            echo "==== audience='$AUD' ===="
             RESP=$(curl -sS -G --data-urlencode "audience=$AUD" -H "Authorization: Bearer $REQ_TOKEN" "$REQ_URL")
-            TOK=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("value",""))' 2>/dev/null || echo "")
-            if [ -z "$TOK" ]; then echo "RESP: $RESP"; continue; fi
-            PAY=$(echo "$TOK" | cut -d. -f2)
-            case $((${#PAY} % 4)) in 2) PAY="$PAY==" ;; 3) PAY="$PAY=" ;; esac
-            PAYJ=$(echo "$PAY" | tr '_-' '/+' | base64 -d 2>/dev/null)
-            echo "$PAYJ" | python3 -c 'import sys,json
-d=json.load(sys.stdin)
-print("  sub:",d.get("sub"))
-print("  aud:",d.get("aud"))
-print("  iss:",d.get("iss"))
-print("  repository:",d.get("repository"))
-print("  ref:",d.get("ref"))
-print("  job_workflow_ref:",d.get("job_workflow_ref"))
-print("  workflow_ref:",d.get("workflow_ref"))
-'
+            TOK=$(printf "%s" "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('value',''))")
+            if [ -z "$TOK" ]; then echo "no token: $RESP"; continue; fi
+            PAY=$(printf "%s" "$TOK" | cut -d. -f2)
+            PAD=$((4 - ${#PAY} % 4))
+            if [ $PAD -lt 4 ]; then PAY="${PAY}$(printf '=%.0s' $(seq 1 $PAD))"; fi
+            printf "%s" "$PAY" | tr -- '-_' '+/' | base64 -d 2>/dev/null | python3 -c "import sys,json; c=json.load(sys.stdin); print('  iss:',c.get('iss')); print('  sub:',c.get('sub')); print('  aud:',c.get('aud')); print('  repository:',c.get('repository')); print('  ref:',c.get('ref')); print('  workflow_ref:',c.get('workflow_ref')); print('  job_workflow_ref:',c.get('job_workflow_ref')); print('  repository_visibility:',c.get('repository_visibility')); print('  event_name:',c.get('event_name'))"
           done
-      - name: Alt JWKS check (ensure issuer is fixed)
+
+      - name: Audience injection - null bytes and CRLF
+        shell: bash
         run: |
-          curl -s https://token.actions.githubusercontent.com/.well-known/openid-configuration | python3 -m json.tool | head -20
+          set -e
+          REQ_TOKEN="${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"
+          REQ_URL="${ACTIONS_ID_TOKEN_REQUEST_URL}"
+          for FUZZ in "a%0b" "a%0d%0ainjected:true" "a%00b" "a b" "a,b" "a|b" ; do
+            echo "==== fuzz aud='$FUZZ' ===="
+            RESP=$(curl -sS -G --data-urlencode "audience=$FUZZ" -H "Authorization: Bearer $REQ_TOKEN" "$REQ_URL")
+            echo "$RESP" | head -c 500
+            echo
+          done
+
+      - name: Issuer metadata
+        run: curl -sS https://token.actions.githubusercontent.com/.well-known/openid-configuration | python3 -m json.tool | head -30
