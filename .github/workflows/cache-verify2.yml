@@ -1,0 +1,35 @@
+name: cache-verify2
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  verify_scoping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete the payload dir if any
+        run: rm -rf payload
+      - name: Try to restore ONLY a key that exists only on attacker branch
+        id: try
+        uses: actions/cache/restore@v4
+        with:
+          path: payload
+          # Exact-match key that does NOT exist on main at all (to force restore-keys fallback)
+          key: ghhunt-cache-key-nonexistent-xxxx
+          # And a prefix that matches both main's and attacker's
+          restore-keys: |
+            ghhunt-cache-key-cache-attacker/
+            ghhunt-cache-key-
+      - name: Dump restored
+        shell: bash
+        run: |
+          echo "cache-hit: ${{ steps.try.outputs.cache-hit }}"
+          echo "matched-key: ${{ steps.try.outputs.cache-matched-key }}"
+          if [ -d payload ]; then
+            ls -la payload/
+            cat payload/*.txt 2>/dev/null || true
+          fi
