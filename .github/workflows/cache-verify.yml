@@ -1,0 +1,31 @@
+name: cache-verify
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  verify_scoping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Try to restore attacker-branch cache
+        id: try
+        uses: actions/cache/restore@v4
+        with:
+          path: payload
+          # Use a key that exists on attacker branch but is different from main's key
+          key: ghhunt-cache-key-cache-attacker/test
+          restore-keys: |
+            ghhunt-cache-key-
+      - name: Dump restored
+        shell: bash
+        run: |
+          echo "cache-hit: ${{ steps.try.outputs.cache-hit }}"
+          echo "matched-key: ${{ steps.try.outputs.cache-matched-key }}"
+          if [ -d payload ]; then
+            ls -la payload/
+            cat payload/*.txt 2>/dev/null || true
+          fi
