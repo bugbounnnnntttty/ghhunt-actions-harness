@@ -1,0 +1,44 @@
+name: harness
+on:
+  issues:
+    types: [opened, edited]
+  push:
+    branches: [main, 'test/**']
+  workflow_dispatch:
+    inputs:
+      payload:
+        description: 'Test payload'
+        required: false
+        default: 'none'
+
+permissions:
+  contents: read
+
+jobs:
+  context_dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runner info
+        run: |
+          echo "::group::runner"
+          uname -a
+          whoami
+          pwd
+          echo "::endgroup::"
+      - name: Print context (intentional injection sink - DO NOT copy)
+        run: |
+          echo "ISSUE_TITLE_UNSAFE: ${{ github.event.issue.title }}"
+          echo "ISSUE_BODY_UNSAFE: ${{ github.event.issue.body }}"
+          echo "REF: ${{ github.ref }}"
+          echo "ACTOR: ${{ github.actor }}"
+          echo "PAYLOAD: ${{ inputs.payload }}"
+      - name: Token permissions dump
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Show what permissions GITHUB_TOKEN grants (without leaking the token itself)
+          curl -s -H "Authorization: token $GH_TOKEN" https://api.github.com/installation/repositories 2>&1 | head -40 | sed 's/^/INSTREPO: /'
+          curl -s -I -H "Authorization: token $GH_TOKEN" https://api.github.com/repos/${{ github.repository }} | grep -i -E '^x-(accepted-github-permissions|ratelimit-remaining|oauth-scopes)' | sed 's/^/HDR: /'
+      - name: Env dump (filtered)
+        run: |
+          env | grep -E '^(GITHUB|ACTIONS|RUNNER)_' | sort | sed 's/TOKEN=.*/TOKEN=REDACTED/' | head -60
