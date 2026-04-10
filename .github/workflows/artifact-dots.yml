@@ -1,0 +1,76 @@
+name: artifact-dots
+on:
+  push:
+    branches: [main, 'artdot/**']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create file
+        run: |
+          mkdir -p w
+          echo "hi-content" > w/hi.txt
+      - name: Try ".."
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: ".."
+          path: w/hi.txt
+      - name: Try "..."
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: "..."
+          path: w/hi.txt
+      - name: Try " "
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: " "
+          path: w/hi.txt
+      - name: Try leading/trailing dot
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: ".hidden"
+          path: w/hi.txt
+      - name: Try with dotted path
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: "a.zip"
+          path: w/hi.txt
+      - name: Try with overlap
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: "a.zip"
+          path: w/hi.txt
+
+  dl:
+    needs: upload
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create a FILE named "." first to test collision
+        run: |
+          mkdir -p dl
+          # Create a placeholder file 'pre-existing.txt' at dl root
+          echo "preexisting" > dl/pre-existing.txt
+          ls -la dl
+      - name: Download all into dl/
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          path: dl
+      - name: Show tree
+        run: |
+          find dl -maxdepth 6
+      - name: Check if pre-existing file was touched
+        run: |
+          cat dl/pre-existing.txt || echo "NOT_FOUND"
