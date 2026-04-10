@@ -1,0 +1,31 @@
+name: concurrency-audit
+on:
+  push:
+    branches: [main, 'conc/**']
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      group:
+        description: 'Concurrency group name'
+        required: false
+        default: 'static'
+
+# Using an expression that depends on user-controlled data.
+# For issues, github.event.issue.title is attacker-controlled.
+concurrency:
+  group: conc-${{ github.event.issue.title || inputs.group || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  conc_job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sleep to simulate long job
+        run: |
+          echo "group was set from title/inputs/ref"
+          echo "ref=${GITHUB_REF}"
+          sleep 15
