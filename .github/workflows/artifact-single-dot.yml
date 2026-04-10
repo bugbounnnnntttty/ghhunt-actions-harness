@@ -1,0 +1,41 @@
+name: artifact-single-dot
+on:
+  push:
+    branches: [main, 'singdot/**']
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          mkdir -p w
+          echo "ATTACKER" > w/target.sh
+          chmod +x w/target.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "."
+          path: w/target.sh
+
+  download_single:
+    needs: upload
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          mkdir -p workspace
+          echo "LEGIT-SCRIPT" > workspace/target.sh
+          chmod +x workspace/target.sh
+          cat workspace/target.sh
+      - name: Download by name=.
+        uses: actions/download-artifact@v4
+        with:
+          name: "."
+          path: workspace
+      - run: |
+          echo "=== after download ==="
+          cat workspace/target.sh
+          find workspace -maxdepth 4
